@@ -38,14 +38,14 @@ class AlleyCat(object):
 
         # We work backwards via xrefs, so we start at the end and end at the start
         if not self.quiet:
-            print 'Generating call paths from %s to %s...' % (self._name(end), self._name(start))
+            print('Generating call paths from %s to %s...' % (self._name(end), self._name(start)))
         self._build_paths(start, end)
 
     @staticmethod
     def _name(ea):
-        name = idc.Name(ea)
+        name = idc.get_name(ea, idaapi.GN_VISIBLE)
         if not name:
-            name = idc.GetFuncOffset(ea)
+            name = idc.get_func_off_str(ea)
             if not name:
                 name = '0x%X' % ea
         return name
@@ -71,8 +71,8 @@ class AlleyCat(object):
             if len(partial_paths[0]) < self.limit:
                 for xref in idautils.XrefsTo(callee):
                     caller = AlleyCatFunctionPaths.get_code_block(xref.frm)
-                    if caller and caller.startEA not in callers:
-                        callers.add(caller.startEA)
+                    if caller and caller.start_ea not in callers:
+                        callers.add(caller.start_ea)
 
             # If there are callers to the callee, remove the callee's current path
             # and insert new ones with the new callers appended.
@@ -104,12 +104,12 @@ class AlleyCatFunctionPaths(AlleyCat):
 
         # We work backwards via xrefs, so we start at the end and end at the start
         try:
-            start = idaapi.get_func(end_ea).startEA
+            start = idaapi.get_func(end_ea).start_ea
         except:
             raise AlleyCatException('Address 0x%X is not part of a function!' % end_ea)
 
         try:
-            end = idaapi.get_func(start_ea).startEA
+            end = idaapi.get_func(start_ea).start_ea
         except:
             end = idc.BADADDR
 
@@ -130,7 +130,7 @@ class AlleyCatCodePaths(AlleyCat):
             raise AlleyCatException('Address 0x%X is not part of a function!' % start_ea)
         if not end_func:
             raise AlleyCatException('Address 0x%X is not part of a function!' % end_ea)
-        if start_func.startEA != end_func.startEA:
+        if start_func.start_ea != end_func.start_ea:
             raise AlleyCatException('The start and end addresses are not part of the same function!')
 
         self.func = start_func
@@ -145,11 +145,11 @@ class AlleyCatCodePaths(AlleyCat):
         if not start_block:
             raise AlleyCatException('Failed to find the code block associated with address 0x%X' % end_ea)
 
-        super(AlleyCatCodePaths, self).__init__(start_block.startEA, end_block.startEA, quiet)
+        super(AlleyCatCodePaths, self).__init__(start_block.start_ea, end_block.start_ea, quiet)
 
     def _get_code_block(self, ea):
         for block in self.blocks:
-            if block.startEA <= ea < block.endEA:
+            if block.start_ea <= ea < block.end_ea:
                 return block
         return None
 
@@ -400,17 +400,17 @@ class AlleyCatGraph(idaapi.GraphViewer):
         if xref_locations:
             xref_locations.sort()
 
-            print ''
-            print 'Path Xrefs from %s:' % self[node_id]
-            print '-' * 100
+            print('')
+            print('Path Xrefs from %s:' % self[node_id])
+            print('-' * 100)
             for (xref_ea, dst_ea) in xref_locations:
-                print '%-50s  =>  %s' % (self.get_name_by_ea(xref_ea), self.get_name_by_ea(dst_ea))
-            print '-' * 100
-            print ''
+                print('%-50s  =>  %s' % (self.get_name_by_ea(xref_ea), self.get_name_by_ea(dst_ea)))
+            print('-' * 100)
+            print('')
 
-            idc.Jump(xref_locations[0][0])
+            idc.jumpto(xref_locations[0][0])
         else:
-            idc.Jump(node_ea)
+            idc.jumpto(node_ea)
 
     def OnClose(self):
         # TODO: Add a 'do not ask again' feature?
@@ -421,7 +421,7 @@ class AlleyCatGraph(idaapi.GraphViewer):
     @staticmethod
     def match_xref_source(xref, source):
         # TODO: This must be modified if support for graphing function blocks is added.
-        return (xref.type != idc.fl_F) and (idc.GetFunctionAttr(xref.frm, idc.FUNCATTR_START) == source)
+        return (xref.type != idc.fl_F) and (idc.get_func_attr(xref.frm, idc.FUNCATTR_START) == source)
 
     @staticmethod
     def get_ea_by_name(name):
@@ -438,14 +438,14 @@ class AlleyCatGraph(idaapi.GraphViewer):
         ea = idc.BADADDR
         if '+' in name:
             (func_name, offset) = name.split('+')
-            base_ea = idc.LocByName(func_name)
+            base_ea = idc.get_name_ea_simple(func_name)
             if base_ea != idc.BADADDR:
                 try:
                     ea = base_ea + int(offset, 16)
                 except:
                     ea = idc.BADADDR
         else:
-            ea = idc.LocByName(name)
+            ea = idc.get_name_ea_simple(name)
             if ea == idc.BADADDR:
                 try:
                     ea = int(name, 0)
@@ -465,11 +465,11 @@ class AlleyCatGraph(idaapi.GraphViewer):
 
         @ea - Address.
 
-        Returns a name for the address, one of idc.Name, idc.GetFuncOffset or 0xXXXXXXXX.
+        Returns a name for the address, one of idc.get_name, idc.get_func_off_str or 0xXXXXXXXX.
         """
-        name = idc.Name(ea)
+        name = idc.get_name(ea, idaapi.GN_VISIBLE)
         if not name:
-            name = idc.GetFuncOffset(ea)
+            name = idc.get_func_off_str(ea)
             if not name:
                 name = '0x%X' % ea
         return name
@@ -482,11 +482,11 @@ class AlleyCatGraph(idaapi.GraphViewer):
             return
 
         for block in idaapi.FlowChart(func):
-            if block.startEA <= ea < block.endEA:
-                ea = block.startEA
-                while ea < block.endEA:
+            if block.start_ea <= ea < block.end_ea:
+                ea = block.start_ea
+                while ea < block.end_ea:
                     idaapi.set_item_color(ea, color)
-                    ea = idc.NextHead(ea)
+                    ea = idc.next_head(ea)
                 break
 
     def highlight(self, ea):
@@ -552,7 +552,7 @@ class AlleycatActionHandlerFindPathsToCurrentBlock(idaapi.action_handler_t):
         idaapi.action_handler_t.__init__(self)
 
     def activate(self, ctx):
-        target = idc.ScreenEA()
+        target = idc.here()
         source = idapathfinder_t.current_function()
 
         if not source:
@@ -601,11 +601,11 @@ class idapathfinder_t(idaapi.plugin_t):
 
     @staticmethod
     def current_function():
-        result = idaapi.get_func(idc.ScreenEA())
+        result = idaapi.get_func(idc.here())
         if result:
-            return result.startEA
+            return result.start_ea
         else:
-            print 'No linear address found at cursor'
+            print('No linear address found at cursor')
 
     @staticmethod
     def find_and_plot_paths(sources, targets, klass=AlleyCatFunctionPaths):
@@ -616,15 +616,15 @@ class idapathfinder_t(idaapi.plugin_t):
                 s = time.time()
                 r = klass(source, target).paths
                 e = time.time()
-                print 'Found %d paths in %f seconds.' % (len(r), (e - s))
+                print('Found %d paths in %f seconds.' % (len(r), (e - s)))
 
                 if r:
                     results += r
                 else:
-                    name = idc.Name(target)
+                    name = idc.get_name(target, idaapi.GN_VISIBLE)
                     if not name:
                         name = '0x%X' % target
-                    print 'No paths found to', name
+                    print('No paths found to', name)
 
         if not results:
             return
@@ -642,18 +642,18 @@ class idapathfinder_t(idaapi.plugin_t):
     @staticmethod
     def get_user_selected_functions(many=False):
         functions = []
-        ea = idc.ScreenEA()
+        ea = idc.here()
         try:
-            current_function = idc.GetFunctionAttr(ea, idc.FUNCATTR_START)
+            current_function = idc.get_func_attr(ea, idc.FUNCATTR_START)
         except:
             current_function = None
 
         while True:
-            func = idc.ChooseFunction('Select a function and click OK until all functions have been selected. When finished, click Cancel to display the graph.')
+            func = idc.choose_func('Select a function and click OK until all functions have been selected. When finished, click Cancel to display the graph.')
             # ChooseFunction automatically jumps to the selected function
             # if the enter key is pressed instead of clicking 'OK'. Annoying.
-            if idc.ScreenEA() != ea:
-                idc.Jump(ea)
+            if idc.here() != ea:
+                idc.jumpto(ea)
 
             if not func or func == idc.BADADDR or func == current_function:
                 break
